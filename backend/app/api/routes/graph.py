@@ -4,37 +4,31 @@ API endpoint for the Drug-AE knowledge graph.
 """
 
 import time
-import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.pydantic_models import KnowledgeGraph
+from app.nlp.graph_builder import graph_builder
+from app.utils.cache import get_cached_json, set_cached_json
 
-logger = logging.getLogger("diaintel.routes.graph")
 router = APIRouter()
 
 
 @router.get("/graph/drug-ae", response_model=KnowledgeGraph)
 async def get_drug_ae_graph(db: Session = Depends(get_db)):
-    """
-    Get all nodes and edges for the knowledge graph.
-
-    Returns: drug nodes, AE nodes, and weighted edges.
-    Cache: 300 seconds.
-
-    Implemented in Step 8.
-    """
     start_time = time.time()
+    cache_key = "graph:drug_ae"
 
-    # TODO: Implement in Step 8
-    # - Query drug_ae_graph for all edges
-    # - Build node list (drugs + AEs)
-    # - Calculate node sizes based on connections
-    # - Use Redis cache with 300s TTL
+    cached = await get_cached_json(cache_key)
+    if cached:
+        cached["processing_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        return cached
 
-    return KnowledgeGraph(
-        nodes=[],
-        edges=[],
-        processing_time_ms=round((time.time() - start_time) * 1000, 2),
-    )
+    graph_builder.build_from_db(db)
+    payload = graph_builder.to_json()
+    payload["processing_time_ms"] = round((time.time() - start_time) * 1000, 2)
+
+    await set_cached_json(cache_key, payload, 300)
+    return payload

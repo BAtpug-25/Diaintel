@@ -54,6 +54,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Scheduler not yet implemented: {e}")
 
+    try:
+        from app.nlp.ae_extractor import ae_extractor
+        from app.nlp.misinfo_detector import misinfo_detector
+        from app.nlp.sentiment import sentiment_analyzer
+
+        ae_extractor.initialize_distilbert()
+        sentiment_analyzer.initialize()
+        misinfo_detector.initialize()
+        logger.info("Real-time NLP models preloaded successfully")
+    except Exception as e:
+        logger.warning(f"Real-time model preload failed: {e}")
+
     yield
 
     # Shutdown

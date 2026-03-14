@@ -1,17 +1,18 @@
 """
 DiaIntel — Misinformation Routes
-API endpoint for the misinformation monitor feed.
+API endpoints for the misinformation monitor feed and review workflow.
 """
 
 import time
-import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.pydantic_models import MisinfoFeed
+from app.utils.cache import get_cached_json, set_cached_json
 
-logger = logging.getLogger("diaintel.routes.misinfo")
 router = APIRouter()
 
 
@@ -23,47 +24,97 @@ async def get_misinfo_feed(
     reviewed: bool = Query(None, description="Filter by reviewed status"),
     db: Session = Depends(get_db),
 ):
-    """
-    Get paginated feed of flagged misinformation posts.
-
-    Returns: post excerpt, claim text, confidence, flag reason,
-    reviewed status.
-
-    Cache: 60 seconds.
-
-    Implemented in Step 8.
-    """
     start_time = time.time()
+    reviewed_key = "all" if reviewed is None else str(reviewed).lower()
+    cache_key = f"misinfo:feed:{page}:{page_size}:{min_confidence}:{reviewed_key}"
 
-    # TODO: Implement in Step 8
-    # - Query misinfo_flags with pagination
-    # - Filter by confidence >= min_confidence
-    # - Optional filter by reviewed status
-    # - Join with processed_posts for excerpt
-    # - Use Redis cache with 60s TTL
+    cached = await get_cached_json(cache_key)
+    if cached:
+        cached["processing_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        return cached
 
-    raise HTTPException(
-        status_code=501,
-        detail="Misinfo feed endpoint not yet implemented (Step 8)"
+    conditions = ["mf.confidence >= :min_confidence"]
+    params = {
+        "min_confidence": min_confidence,
+        "limit": page_size,
+        "offset": (page - 1) * page_size,
+    }
+    if reviewed is not None:
+        conditions.append("mf.reviewed = :reviewed")
+        params["reviewed"] = reviewed
+
+    where_clause = " AND ".join(conditions)
+    total = int(
+        db.execute(
+            sql_text(f"SELECT COUNT(*) FROM misinfo_flags mf WHERE {where_clause}"),
+            params,
+        ).scalar()
+        or 0
     )
+
+    rows = db.execute(
+        sql_text(
+            f"""
+            SELECT
+                mf.id,
+                mf.post_id,
+                mf.claim_text,
+                mf.flag_reason,
+                mf.confidence,
+                mf.flagged_at,
+                mf.reviewed,
+                LEFT(pp.cleaned_text, 280) AS excerpt
+            FROM misinfo_flags mf
+            JOIN processed_posts pp ON pp.id = mf.post_id
+            WHERE {where_clause}
+            ORDER BY mf.flagged_at DESC, mf.id DESC
+            LIMIT :limit OFFSET :offset
+            """
+        ),
+        params,
+    ).mappings().all()
+
+    payload = {
+        "flags": [
+            {
+                "id": row["id"],
+                "post_id": row["post_id"],
+                "claim_text": row["claim_text"],
+                "flag_reason": row["flag_reason"],
+                "confidence": float(row["confidence"] or 0.0),
+                "flagged_at": row["flagged_at"],
+                "reviewed": bool(row["reviewed"]),
+                "excerpt": row["excerpt"],
+            }
+            for row in rows
+        ],
+        "total": total,
+        "processing_time_ms": round((time.time() - start_time) * 1000, 2),
+    }
+    await set_cached_json(cache_key, payload, 60)
+    return payload
 
 
 @router.patch("/misinfo/{flag_id}/review")
 async def mark_as_reviewed(flag_id: int, db: Session = Depends(get_db)):
-    """
-    Mark a misinformation flag as reviewed.
-
-    No delete option — only flag or label.
-
-    Implemented in Step 8.
-    """
     start_time = time.time()
+    updated = db.execute(
+        sql_text(
+            """
+            UPDATE misinfo_flags
+            SET reviewed = TRUE
+            WHERE id = :flag_id
+            RETURNING id
+            """
+        ),
+        {"flag_id": flag_id},
+    ).first()
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Misinformation flag {flag_id} not found")
 
-    # TODO: Implement in Step 8
-    # - Update misinfo_flags.reviewed = True
-    # - Never delete, only update
-
-    raise HTTPException(
-        status_code=501,
-        detail=f"Mark reviewed endpoint not yet implemented (Step 8). Flag ID: {flag_id}"
-    )
+    db.commit()
+    return {
+        "flag_id": flag_id,
+        "reviewed": True,
+        "processing_time_ms": round((time.time() - start_time) * 1000, 2),
+    }

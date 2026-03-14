@@ -21,10 +21,10 @@ CREATE TABLE IF NOT EXISTS raw_posts (
     source_file     VARCHAR(255)
 );
 
-CREATE INDEX idx_raw_posts_subreddit ON raw_posts(subreddit);
-CREATE INDEX idx_raw_posts_processed ON raw_posts(processed);
-CREATE INDEX idx_raw_posts_source_file ON raw_posts(source_file);
-CREATE INDEX idx_raw_posts_created_utc ON raw_posts(created_utc);
+CREATE INDEX IF NOT EXISTS idx_raw_posts_subreddit ON raw_posts(subreddit);
+CREATE INDEX IF NOT EXISTS idx_raw_posts_processed ON raw_posts(processed);
+CREATE INDEX IF NOT EXISTS idx_raw_posts_source_file ON raw_posts(source_file);
+CREATE INDEX IF NOT EXISTS idx_raw_posts_created_utc ON raw_posts(created_utc);
 
 -- ============================================================
 -- Table: processed_posts
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS processed_posts (
     processed_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_processed_posts_raw_post_id ON processed_posts(raw_post_id);
+CREATE INDEX IF NOT EXISTS idx_processed_posts_raw_post_id ON processed_posts(raw_post_id);
 
 -- ============================================================
 -- Table: drug_mentions
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS drug_mentions (
     detected_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_drug_mentions_drug_normalized ON drug_mentions(drug_normalized);
-CREATE INDEX idx_drug_mentions_post_id ON drug_mentions(post_id);
+CREATE INDEX IF NOT EXISTS idx_drug_mentions_drug_normalized ON drug_mentions(drug_normalized);
+CREATE INDEX IF NOT EXISTS idx_drug_mentions_post_id ON drug_mentions(post_id);
 
 -- ============================================================
 -- Table: ae_signals
@@ -76,10 +76,49 @@ CREATE TABLE IF NOT EXISTS ae_signals (
     is_new_signal   BOOLEAN DEFAULT FALSE
 );
 
-CREATE INDEX idx_ae_signals_drug_name ON ae_signals(drug_name);
-CREATE INDEX idx_ae_signals_detected_at ON ae_signals(detected_at);
-CREATE INDEX idx_ae_signals_post_id ON ae_signals(post_id);
-CREATE INDEX idx_ae_signals_ae_term ON ae_signals(ae_term);
+CREATE INDEX IF NOT EXISTS idx_ae_signals_drug_name ON ae_signals(drug_name);
+CREATE INDEX IF NOT EXISTS idx_ae_signals_detected_at ON ae_signals(detected_at);
+CREATE INDEX IF NOT EXISTS idx_ae_signals_post_id ON ae_signals(post_id);
+CREATE INDEX IF NOT EXISTS idx_ae_signals_ae_term ON ae_signals(ae_term);
+
+-- ============================================================
+-- Table: treatment_outcomes
+-- Stores extracted treatment outcomes linked to drugs
+-- ============================================================
+CREATE TABLE IF NOT EXISTS treatment_outcomes (
+    id                SERIAL PRIMARY KEY,
+    post_id           INTEGER NOT NULL REFERENCES processed_posts(id) ON DELETE CASCADE,
+    drug_name         VARCHAR(100) NOT NULL,
+    outcome_category  VARCHAR(100) NOT NULL,
+    outcome_text      TEXT NOT NULL,
+    polarity          VARCHAR(20) DEFAULT 'positive',
+    confidence        FLOAT DEFAULT 0.0,
+    duration          VARCHAR(100),
+    detected_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_treatment_outcomes_post_id ON treatment_outcomes(post_id);
+CREATE INDEX IF NOT EXISTS idx_treatment_outcomes_drug_name ON treatment_outcomes(drug_name);
+CREATE INDEX IF NOT EXISTS idx_treatment_outcomes_category ON treatment_outcomes(outcome_category);
+
+-- ============================================================
+-- Table: drug_combinations
+-- Stores co-mentioned drug pairs and concurrency strength
+-- ============================================================
+CREATE TABLE IF NOT EXISTS drug_combinations (
+    id                 SERIAL PRIMARY KEY,
+    drug_1             VARCHAR(100) NOT NULL,
+    drug_2             VARCHAR(100) NOT NULL,
+    post_count         INTEGER DEFAULT 1,
+    concurrency_score  FLOAT DEFAULT 0.0,
+    example_post_id    INTEGER REFERENCES processed_posts(id) ON DELETE SET NULL,
+    first_detected     TIMESTAMPTZ DEFAULT NOW(),
+    last_updated       TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(drug_1, drug_2)
+);
+
+CREATE INDEX IF NOT EXISTS idx_drug_combinations_pair ON drug_combinations(drug_1, drug_2);
+CREATE INDEX IF NOT EXISTS idx_drug_combinations_example_post_id ON drug_combinations(example_post_id);
 
 -- ============================================================
 -- Table: sentiment_scores
@@ -95,8 +134,8 @@ CREATE TABLE IF NOT EXISTS sentiment_scores (
     scored_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_sentiment_scores_drug_name ON sentiment_scores(drug_name);
-CREATE INDEX idx_sentiment_scores_post_id ON sentiment_scores(post_id);
+CREATE INDEX IF NOT EXISTS idx_sentiment_scores_drug_name ON sentiment_scores(drug_name);
+CREATE INDEX IF NOT EXISTS idx_sentiment_scores_post_id ON sentiment_scores(post_id);
 
 -- ============================================================
 -- Table: misinfo_flags
@@ -112,8 +151,8 @@ CREATE TABLE IF NOT EXISTS misinfo_flags (
     reviewed        BOOLEAN DEFAULT FALSE
 );
 
-CREATE INDEX idx_misinfo_flags_post_id ON misinfo_flags(post_id);
-CREATE INDEX idx_misinfo_flags_confidence ON misinfo_flags(confidence);
+CREATE INDEX IF NOT EXISTS idx_misinfo_flags_post_id ON misinfo_flags(post_id);
+CREATE INDEX IF NOT EXISTS idx_misinfo_flags_confidence ON misinfo_flags(confidence);
 
 -- ============================================================
 -- Table: drug_ae_graph
@@ -129,8 +168,8 @@ CREATE TABLE IF NOT EXISTS drug_ae_graph (
     UNIQUE(drug_name, ae_term)
 );
 
-CREATE INDEX idx_drug_ae_graph_drug_name ON drug_ae_graph(drug_name);
-CREATE INDEX idx_drug_ae_graph_ae_term ON drug_ae_graph(ae_term);
+CREATE INDEX IF NOT EXISTS idx_drug_ae_graph_drug_name ON drug_ae_graph(drug_name);
+CREATE INDEX IF NOT EXISTS idx_drug_ae_graph_ae_term ON drug_ae_graph(ae_term);
 
 -- ============================================================
 -- Table: drug_stats_cache
@@ -159,5 +198,5 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
     status          VARCHAR(50) DEFAULT 'pending'
 );
 
-CREATE INDEX idx_ingestion_log_filename ON ingestion_log(filename);
-CREATE INDEX idx_ingestion_log_status ON ingestion_log(status);
+CREATE INDEX IF NOT EXISTS idx_ingestion_log_filename ON ingestion_log(filename);
+CREATE INDEX IF NOT EXISTS idx_ingestion_log_status ON ingestion_log(status);
