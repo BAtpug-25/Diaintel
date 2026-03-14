@@ -1,5 +1,5 @@
 """
-DiaIntel — Misinformation Routes
+DiaIntel - Misinformation routes.
 API endpoints for the misinformation monitor feed and review workflow.
 """
 
@@ -10,7 +10,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.pydantic_models import MisinfoFeed
+from app.models.pydantic_models import MisinfoFeed, ReviewAction
 from app.utils.cache import get_cached_json, set_cached_json
 
 router = APIRouter()
@@ -77,25 +77,27 @@ async def get_misinfo_feed(
     payload = {
         "flags": [
             {
-                "id": row["id"],
-                "post_id": row["post_id"],
+                "id": int(row["id"]),
+                "post_id": int(row["post_id"]),
+                "excerpt": row["excerpt"],
                 "claim_text": row["claim_text"],
                 "flag_reason": row["flag_reason"],
                 "confidence": float(row["confidence"] or 0.0),
                 "flagged_at": row["flagged_at"],
                 "reviewed": bool(row["reviewed"]),
-                "excerpt": row["excerpt"],
             }
             for row in rows
         ],
         "total": total,
+        "page": page,
+        "page_size": page_size,
         "processing_time_ms": round((time.time() - start_time) * 1000, 2),
     }
     await set_cached_json(cache_key, payload, 60)
     return payload
 
 
-@router.patch("/misinfo/{flag_id}/review")
+@router.patch("/misinfo/{flag_id}/review", response_model=ReviewAction)
 async def mark_as_reviewed(flag_id: int, db: Session = Depends(get_db)):
     start_time = time.time()
     updated = db.execute(

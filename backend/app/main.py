@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import engine, Base
-from app.api.routes import drugs, compare, analyze, graph, dashboard, misinfo
+from app.api.routes import drugs, compare, analyze, graph, dashboard, misinfo, combinations
 from app.api.websocket import router as ws_router
 
 # Configure logging
@@ -113,6 +113,7 @@ app.include_router(analyze.router, prefix="/api/v1", tags=["Analyze"])
 app.include_router(graph.router, prefix="/api/v1", tags=["Graph"])
 app.include_router(dashboard.router, prefix="/api/v1", tags=["Dashboard"])
 app.include_router(misinfo.router, prefix="/api/v1", tags=["Misinformation"])
+app.include_router(combinations.router, prefix="/api/v1", tags=["Combinations"])
 app.include_router(ws_router, tags=["WebSocket"])
 
 
@@ -136,3 +137,4 @@ async def root():
         "docs": "/docs",
         "health": "/health",
     }
+

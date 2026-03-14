@@ -1,5 +1,5 @@
 """
-DiaIntel — NLP Pipeline
+DiaIntel - NLP Pipeline
 Raw-SQL pipeline for cleaning, drug NER, AE extraction, outcomes, timelines,
 combos, sentiment, misinformation, and graph updates.
 """
@@ -12,6 +12,7 @@ import spacy
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
+from app.api.websocket import broadcast_processing_progress_sync, broadcast_signal_update_sync
 from app.config import settings
 from app.database import SessionLocal
 from app.nlp.ae_extractor import analyze_text_realtime, process_batch as process_ae_batch
@@ -19,7 +20,7 @@ from app.nlp.cleaner import TextCleaner
 from app.nlp.combo_detector import detect_combos_for_post
 from app.nlp.drug_ner import DrugNER
 from app.nlp.graph_builder import graph_builder
-# from app.nlp.misinfo_detector import check_misinfo_for_post  # DISABLED
+from app.nlp.misinfo_detector import check_misinfo_for_post
 from app.nlp.outcome_extractor import process_outcomes_for_post
 from app.nlp.sentiment import score_sentiment_for_post
 from app.nlp.timeline_extractor import extract_timelines_for_post
@@ -94,10 +95,12 @@ class NLPPipeline:
         if not batch_rows:
             return 0
 
+        broadcast_processing_progress_sync(0.0, "Starting NLP batch", {"posts": len(batch_rows)})
+
         prepared_posts = []
         processed_count = 0
 
-        for row in batch_rows:
+        for index, row in enumerate(batch_rows, start=1):
             try:
                 process_result = self._process_single_post(db, row)
                 processed_count += 1
@@ -109,33 +112,45 @@ class NLPPipeline:
                     sql_text("UPDATE raw_posts SET processed = TRUE WHERE id = :raw_post_id"),
                     {"raw_post_id": row["id"]},
                 )
+            if index % 25 == 0 or index == len(batch_rows):
+                progress = round((index / len(batch_rows)) * 40, 2)
+                broadcast_processing_progress_sync(progress, "Cleaning and drug extraction in progress", {"processed": index, "total": len(batch_rows)})
 
         db.commit()
 
         if prepared_posts:
             try:
                 process_ae_batch(prepared_posts, db)
+                db.commit()
             except Exception as exc:
                 logger.error("AE extraction failed for current batch: %s", exc, exc_info=True)
                 db.rollback()
 
             downstream_start = time.time()
-            for post in prepared_posts:
+            for index, post in enumerate(prepared_posts, start=1):
                 if not post["drug_mentions"]:
                     continue
                 try:
                     process_outcomes_for_post(post["id"], post["clean_text"], post["drug_mentions"], db)
                     detect_combos_for_post(post["id"], post["clean_text"], db)
                     score_sentiment_for_post(post["id"], post["clean_text"], post["drug_mentions"], db)
-                    # check_misinfo_for_post  # DISABLED - too slow(post["id"], post["clean_text"], db)
+                    check_misinfo_for_post(post["id"], post["clean_text"], db)
                     extract_timelines_for_post(post["id"], post["clean_text"], db)
                     graph_builder.update_graph_for_post(post["id"], db)
                     db.commit()
                 except Exception as exc:
                     logger.warning("Post-processing failed for processed post %s: %s", post["id"], exc, exc_info=True)
                     db.rollback()
+                if index % 10 == 0 or index == len(prepared_posts):
+                    progress = 40 + round((index / len(prepared_posts)) * 60, 2)
+                    broadcast_processing_progress_sync(progress, "NLP enrichment in progress", {"processed": index, "total": len(prepared_posts)})
             logger.info("Downstream NLP steps completed in %.1fs", time.time() - downstream_start)
 
+        total_signals = int(db.execute(sql_text("SELECT COUNT(*) FROM ae_signals")).scalar() or 0)
+        last_updated = db.execute(sql_text("SELECT MAX(detected_at) FROM ae_signals")).scalar()
+        if last_updated is not None:
+            broadcast_signal_update_sync(total_signals, str(last_updated))
+        broadcast_processing_progress_sync(100.0, "NLP batch complete", {"processed": processed_count})
         return processed_count
 
     def _process_single_post(self, db: Session, raw_post: dict) -> Optional[dict]:
@@ -256,7 +271,6 @@ pipeline = NLPPipeline()
 
 
 def run_pipeline():
-    from app.database import SessionLocal
     db = SessionLocal()
     total = 0
     try:
@@ -265,8 +279,8 @@ def run_pipeline():
             if count == 0:
                 break
             total += count
-            print(f'Processed {total} posts so far...')
+            print(f"Processed {total} posts so far...")
     finally:
         db.close()
-    print(f'Done! Total: {total} posts processed')
+    print(f"Done! Total: {total} posts processed")
     return total

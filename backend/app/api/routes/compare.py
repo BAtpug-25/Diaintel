@@ -1,5 +1,5 @@
 """
-DiaIntel — Compare Routes
+DiaIntel - Compare routes.
 API endpoints for side-by-side drug comparison.
 """
 
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.pydantic_models import DrugComparison
 from app.utils.cache import get_cached_json, set_cached_json
+from app.utils.drug_catalog import get_drug_metadata, normalize_drug_name
 
 router = APIRouter()
 
@@ -22,9 +23,9 @@ async def compare_drugs(
     db: Session = Depends(get_db),
 ):
     start_time = time.time()
-    drug_list = [drug.strip().lower() for drug in drugs.split(",") if drug.strip()]
-    if len(drug_list) < 2:
-        raise HTTPException(status_code=400, detail="At least 2 drugs required for comparison")
+    drug_list = [normalize_drug_name(drug.strip()) for drug in drugs.split(",") if drug.strip()]
+    if len(drug_list) != 2:
+        raise HTTPException(status_code=400, detail="Exactly 2 drugs are required for comparison")
 
     cache_key = "compare:" + ",".join(sorted(drug_list))
     cached = await get_cached_json(cache_key)
@@ -47,15 +48,8 @@ async def compare_drugs(
 
     ae_matrix = {}
     for row in ae_rows:
-        ae_matrix.setdefault(row["ae_term"], {})
-        ae_matrix[row["ae_term"]][row["drug_name"]] = int(row["count"])
-
-    common_aes = [
-        {"ae_term": ae_term, "counts": counts}
-        for ae_term, counts in ae_matrix.items()
-        if len(counts) > 1
-    ]
-    common_aes.sort(key=lambda item: sum(item["counts"].values()), reverse=True)
+        ae_matrix.setdefault(row["ae_term"], {drug_list[0]: 0, drug_list[1]: 0})
+        ae_matrix[row["ae_term"]][row["drug_name"]] = int(row["count"] or 0)
 
     sentiment_rows = db.execute(
         sql_text(
@@ -70,6 +64,13 @@ async def compare_drugs(
         ),
         {"drug_names": drug_list},
     ).mappings().all()
+    sentiment_map = {
+        row["drug_name"]: {
+            "score": float(row["avg_score"] or 0.0),
+            "label": row["dominant_label"] or "neutral",
+        }
+        for row in sentiment_rows
+    }
 
     post_volume_rows = db.execute(
         sql_text(
@@ -82,21 +83,27 @@ async def compare_drugs(
         ),
         {"drug_names": drug_list},
     ).mappings().all()
+    post_volume_map = {row["drug_name"]: int(row["post_volume"] or 0) for row in post_volume_rows}
 
     payload = {
-        "drug_1": drug_list[0],
-        "drug_2": drug_list[1],
-        "compared_drugs": drug_list,
-        "common_aes": common_aes[:15],
-        "sentiment_comparison": {
-            row["drug_name"]: {
-                "avg_sentiment": float(row["avg_score"] or 0.0),
-                "dominant_label": row["dominant_label"],
+        "drugs": [
+            {
+                "drug_name": drug_name,
+                "display_name": get_drug_metadata(drug_name)["display_name"],
+                "total_posts": post_volume_map.get(drug_name, 0),
+                "sentiment_score": sentiment_map.get(drug_name, {}).get("score", 0.0),
+                "dominant_label": sentiment_map.get(drug_name, {}).get("label", "neutral"),
             }
-            for row in sentiment_rows
-        },
-        "ae_frequency_diff": ae_matrix,
-        "post_volume": {row["drug_name"]: int(row["post_volume"]) for row in post_volume_rows},
+            for drug_name in drug_list
+        ],
+        "ae_matrix": [
+            {"ae_term": ae_term, "counts": counts}
+            for ae_term, counts in sorted(
+                ae_matrix.items(),
+                key=lambda item: sum(item[1].values()),
+                reverse=True,
+            )[:20]
+        ],
         "processing_time_ms": round((time.time() - start_time) * 1000, 2),
     }
     await set_cached_json(cache_key, payload, 300)
