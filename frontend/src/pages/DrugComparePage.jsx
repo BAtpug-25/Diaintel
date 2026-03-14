@@ -1,115 +1,223 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Legend,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from 'recharts';
+
 import ErrorBoundary from '../ErrorBoundary';
+import { SkeletonChart } from '../components/Dashboard/SkeletonLoaders';
+import { compareDrugs } from '../services/api';
 
-/**
- * Drug Comparison Page
- * - Dropdown selectors for 2 drugs
- * - AE frequency heatmap
- * - Sentiment comparison bar chart
- * - Post volume comparison
- *
- * Implemented in Step 12.
- */
+const DRUG_OPTIONS = [
+    'ozempic',
+    'metformin',
+    'wegovy',
+    'semaglutide',
+    'trulicity',
+    'liraglutide',
+    'dulaglutide',
+    'glipizide',
+];
 
-const DRUGS = ['Metformin', 'Ozempic', 'Jardiance', 'Januvia', 'Farxiga', 'Trulicity', 'Victoza', 'Glipizide'];
+const CHART_COLORS = ['#00C896', '#F59E0B'];
+
+function ErrorCard({ title, error, onRetry }) {
+    return (
+        <div className="di-card">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h2 className="di-section-title mb-1">{title}</h2>
+                    <p className="text-sm text-di-text-secondary">{error || 'Failed to load comparison data.'}</p>
+                </div>
+                <button type="button" className="di-btn-secondary" onClick={onRetry}>
+                    Retry
+                </button>
+            </div>
+        </div>
+    );
+}
 
 function DrugComparePage() {
-    const [drug1, setDrug1] = useState('');
-    const [drug2, setDrug2] = useState('');
+    const [drug1, setDrug1] = useState('ozempic');
+    const [drug2, setDrug2] = useState('metformin');
+    const [comparison, setComparison] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const loadComparison = async (firstDrug = drug1, secondDrug = drug2) => {
+        if (!firstDrug || !secondDrug || firstDrug === secondDrug) {
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await compareDrugs([firstDrug, secondDrug]);
+            setComparison(response.data);
+        } catch (requestError) {
+            setError(requestError.response?.data?.detail || requestError.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadComparison('ozempic', 'metformin');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const aeMatrixData = useMemo(() => {
+        if (!comparison?.drugs?.length) {
+            return [];
+        }
+        const [first, second] = comparison.drugs;
+        return (comparison.ae_matrix || []).map((row) => ({
+            ae_term: row.ae_term,
+            [first.drug_name]: row.counts?.[first.drug_name] || 0,
+            [second.drug_name]: row.counts?.[second.drug_name] || 0,
+        }));
+    }, [comparison]);
+
+    const sentimentData = useMemo(
+        () =>
+            (comparison?.drugs || []).map((drug) => ({
+                name: drug.display_name,
+                overall_sentiment: drug.sentiment_score,
+            })),
+        [comparison]
+    );
+
+    const postVolumeData = useMemo(
+        () =>
+            (comparison?.drugs || []).map((drug) => ({
+                name: drug.display_name,
+                total_posts: drug.total_posts,
+            })),
+        [comparison]
+    );
+
+    const canCompare = drug1 && drug2 && drug1 !== drug2;
+    const firstKey = comparison?.drugs?.[0]?.drug_name;
+    const secondKey = comparison?.drugs?.[1]?.drug_name;
 
     return (
         <ErrorBoundary>
             <div className="space-y-6 animate-fade-in">
                 <div>
                     <h1 className="text-2xl font-bold text-di-text">Drug Comparison</h1>
-                    <p className="text-sm text-di-text-secondary mt-1">
-                        Compare adverse event profiles side-by-side
+                    <p className="mt-1 text-sm text-di-text-secondary">
+                        Compare adverse-event burden, sentiment, and post volume side-by-side.
                     </p>
                 </div>
 
-                {/* Drug Selectors */}
                 <div className="di-card">
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                        <div className="flex-1 w-full">
-                            <label className="block text-sm text-di-text-secondary mb-1">Drug 1</label>
-                            <select
-                                value={drug1}
-                                onChange={(e) => setDrug1(e.target.value)}
-                                className="di-input"
-                            >
-                                <option value="">Select a drug...</option>
-                                {DRUGS.map((d) => (
-                                    <option key={d} value={d.toLowerCase()} disabled={d.toLowerCase() === drug2}>
-                                        {d}
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+                        <div className="flex-1">
+                            <label className="mb-2 block text-sm text-di-text-secondary">Drug 1</label>
+                            <select className="di-input" value={drug1} onChange={(event) => setDrug1(event.target.value)}>
+                                {DRUG_OPTIONS.map((drug) => (
+                                    <option key={drug} value={drug} disabled={drug === drug2}>
+                                        {drug}
                                     </option>
                                 ))}
                             </select>
                         </div>
-
-                        <div className="text-2xl text-di-text-secondary mt-4 sm:mt-6">⚖️</div>
-
-                        <div className="flex-1 w-full">
-                            <label className="block text-sm text-di-text-secondary mb-1">Drug 2</label>
-                            <select
-                                value={drug2}
-                                onChange={(e) => setDrug2(e.target.value)}
-                                className="di-input"
-                            >
-                                <option value="">Select a drug...</option>
-                                {DRUGS.map((d) => (
-                                    <option key={d} value={d.toLowerCase()} disabled={d.toLowerCase() === drug1}>
-                                        {d}
+                        <div className="flex-1">
+                            <label className="mb-2 block text-sm text-di-text-secondary">Drug 2</label>
+                            <select className="di-input" value={drug2} onChange={(event) => setDrug2(event.target.value)}>
+                                {DRUG_OPTIONS.map((drug) => (
+                                    <option key={drug} value={drug} disabled={drug === drug1}>
+                                        {drug}
                                     </option>
                                 ))}
                             </select>
                         </div>
-
-                        <button className="di-btn-primary mt-4 sm:mt-6 whitespace-nowrap">
-                            Compare
+                        <button type="button" className="di-btn-primary whitespace-nowrap" disabled={!canCompare || loading} onClick={() => loadComparison()}>
+                            {loading ? 'Comparing...' : 'Compare'}
                         </button>
                     </div>
                 </div>
 
-                {drug1 && drug2 ? (
-                    <div className="grid grid-cols-1 gap-6">
-                        {/* AE Frequency Heatmap */}
+                {error ? (
+                    <ErrorCard title="Comparison" error={error} onRetry={() => loadComparison()} />
+                ) : loading && !comparison ? (
+                    <SkeletonChart height="h-96" />
+                ) : comparison ? (
+                    <div className="space-y-6">
                         <div className="di-card">
-                            <h2 className="di-section-title">AE Frequency Heatmap</h2>
-                            <div className="h-96 flex items-center justify-center text-di-text-secondary text-sm">
-                                Heatmap comparing {drug1} vs {drug2} — Step 12
-                            </div>
+                            <h2 className="di-section-title">AE Matrix</h2>
+                            {aeMatrixData.length ? (
+                                <div className="h-96">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={aeMatrixData} margin={{ top: 8, right: 12, left: 8, bottom: 48 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#1E3A2F" />
+                                            <XAxis dataKey="ae_term" stroke="#8BA89E" tickLine={false} axisLine={false} angle={-20} textAnchor="end" height={70} />
+                                            <YAxis stroke="#8BA89E" tickLine={false} axisLine={false} />
+                                            <Tooltip contentStyle={{ backgroundColor: '#112820', border: '1px solid #1E3A2F', borderRadius: '12px', color: '#FFFFFF' }} />
+                                            <Legend />
+                                            {firstKey ? <Bar dataKey={firstKey} fill={CHART_COLORS[0]} radius={[8, 8, 0, 0]} /> : null}
+                                            {secondKey ? <Bar dataKey={secondKey} fill={CHART_COLORS[1]} radius={[8, 8, 0, 0]} /> : null}
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            ) : (
+                                <div className="flex h-96 items-center justify-center rounded-xl border border-dashed border-di-border text-sm text-di-text-secondary">
+                                    No overlapping adverse-event data found for this pair.
+                                </div>
+                            )}
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {/* Sentiment Comparison */}
+                        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                             <div className="di-card">
                                 <h2 className="di-section-title">Sentiment Comparison</h2>
-                                <div className="h-64 flex items-center justify-center text-di-text-secondary text-sm">
-                                    Bar chart — Step 12
-                                </div>
+                                {sentimentData.length ? (
+                                    <div className="h-72">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={sentimentData} margin={{ top: 8, right: 12, left: -12, bottom: 8 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A2F" />
+                                                <XAxis dataKey="name" stroke="#8BA89E" tickLine={false} axisLine={false} />
+                                                <YAxis stroke="#8BA89E" tickLine={false} axisLine={false} />
+                                                <Tooltip contentStyle={{ backgroundColor: '#112820', border: '1px solid #1E3A2F', borderRadius: '12px', color: '#FFFFFF' }} />
+                                                <Bar dataKey="overall_sentiment" fill="#00C896" radius={[8, 8, 0, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <div className="flex h-72 items-center justify-center rounded-xl border border-dashed border-di-border text-sm text-di-text-secondary">
+                                        No sentiment comparison data available.
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Post Volume */}
                             <div className="di-card">
                                 <h2 className="di-section-title">Post Volume</h2>
-                                <div className="h-64 flex items-center justify-center text-di-text-secondary text-sm">
-                                    Volume comparison — Step 12
-                                </div>
+                                {postVolumeData.length ? (
+                                    <div className="h-72">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={postVolumeData} margin={{ top: 8, right: 12, left: -12, bottom: 8 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#1E3A2F" />
+                                                <XAxis dataKey="name" stroke="#8BA89E" tickLine={false} axisLine={false} />
+                                                <YAxis stroke="#8BA89E" tickLine={false} axisLine={false} />
+                                                <Tooltip contentStyle={{ backgroundColor: '#112820', border: '1px solid #1E3A2F', borderRadius: '12px', color: '#FFFFFF' }} />
+                                                <Bar dataKey="total_posts" fill="#F59E0B" radius={[8, 8, 0, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <div className="flex h-72 items-center justify-center rounded-xl border border-dashed border-di-border text-sm text-di-text-secondary">
+                                        No post volume data available.
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
-                ) : (
-                    <div className="di-card text-center py-16">
-                        <div className="text-5xl mb-4">⚖️</div>
-                        <h2 className="text-xl font-semibold text-di-text mb-2">
-                            Select Two Drugs to Compare
-                        </h2>
-                        <p className="text-di-text-secondary">
-                            Choose two drugs from the dropdowns above to see a side-by-side
-                            comparison of adverse events, sentiment, and post volume.
-                        </p>
-                    </div>
-                )}
+                ) : null}
             </div>
         </ErrorBoundary>
     );

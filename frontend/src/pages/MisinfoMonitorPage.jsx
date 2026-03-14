@@ -1,41 +1,90 @@
-import React, { useState } from 'react';
-import ErrorBoundary from '../ErrorBoundary';
+import React, { useEffect, useState } from 'react';
 
-/**
- * Misinformation Monitor Page
- * - Feed of flagged posts as cards
- * - Confidence filter slider
- * - Reviewed/Unreviewed toggle
- * - Mark as reviewed button (no delete)
- *
- * Implemented in Step 15.
- */
+import ErrorBoundary from '../ErrorBoundary';
+import { SkeletonList } from '../components/Dashboard/SkeletonLoaders';
+import { getMisinfoFeed, markAsReviewed } from '../services/api';
+
+function formatDate(value) {
+    if (!value) {
+        return '-';
+    }
+    return new Intl.DateTimeFormat('en-IN', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    }).format(new Date(value));
+}
+
 function MisinfoMonitorPage() {
     const [minConfidence, setMinConfidence] = useState(0.5);
     const [showReviewed, setShowReviewed] = useState(false);
+    const [page, setPage] = useState(1);
+    const [feed, setFeed] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [reviewingId, setReviewingId] = useState(null);
+
+    const loadFeed = async (options = {}) => {
+        const nextPage = options.page ?? page;
+        const nextReviewed = options.reviewed ?? showReviewed;
+        const nextConfidence = options.minConfidence ?? minConfidence;
+
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await getMisinfoFeed({
+                page: nextPage,
+                page_size: 20,
+                reviewed: nextReviewed,
+                min_confidence: nextConfidence,
+            });
+            setFeed(response.data);
+        } catch (requestError) {
+            setError(requestError.response?.data?.detail || requestError.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadFeed({ page, reviewed: showReviewed, minConfidence });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, showReviewed, minConfidence]);
+
+    const handleMarkReviewed = async (flagId) => {
+        setReviewingId(flagId);
+        try {
+            await markAsReviewed(flagId);
+            loadFeed();
+        } catch (requestError) {
+            setError(requestError.response?.data?.detail || requestError.message);
+        } finally {
+            setReviewingId(null);
+        }
+    };
+
+    const totalPages = Math.max(1, Math.ceil((feed?.total || 0) / (feed?.page_size || 20)));
 
     return (
         <ErrorBoundary>
             <div className="space-y-6 animate-fade-in">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-bold text-di-text">Misinformation Monitor</h1>
-                        <p className="text-sm text-di-text-secondary mt-1">
-                            AI-flagged posts requiring medical review
+                        <p className="mt-1 text-sm text-di-text-secondary">
+                            AI-flagged posts requiring review.
                         </p>
                     </div>
                     <div className="di-badge-red text-sm">
-                        🛡️ 0 Flagged
+                        Flagged: {feed?.total || 0}
                     </div>
                 </div>
 
-                {/* Filters */}
                 <div className="di-card">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-                        {/* Confidence Slider */}
+                    <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex-1">
-                            <label className="block text-sm text-di-text-secondary mb-2">
-                                Min Confidence: <span className="text-di-accent font-mono">{minConfidence.toFixed(2)}</span>
+                            <label className="mb-2 block text-sm text-di-text-secondary">
+                                Min Confidence: <span className="font-mono text-di-accent">{minConfidence.toFixed(2)}</span>
                             </label>
                             <input
                                 type="range"
@@ -43,26 +92,36 @@ function MisinfoMonitorPage() {
                                 max="1.0"
                                 step="0.05"
                                 value={minConfidence}
-                                onChange={(e) => setMinConfidence(parseFloat(e.target.value))}
-                                className="w-full h-1.5 bg-di-border rounded-lg appearance-none cursor-pointer accent-di-accent"
+                                onChange={(event) => {
+                                    setPage(1);
+                                    setMinConfidence(parseFloat(event.target.value));
+                                }}
+                                className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-di-border accent-di-accent"
                             />
-                            <div className="flex justify-between text-xs text-di-text-secondary mt-1">
+                            <div className="mt-1 flex justify-between text-xs text-di-text-secondary">
                                 <span>0.50</span>
                                 <span>1.00</span>
                             </div>
                         </div>
 
-                        {/* Reviewed Toggle */}
                         <div className="flex items-center gap-3">
                             <button
-                                onClick={() => setShowReviewed(false)}
-                                className={`di-btn text-sm ${!showReviewed ? 'bg-di-accent/10 text-di-accent border border-di-accent' : 'text-di-text-secondary border border-di-border'}`}
+                                type="button"
+                                onClick={() => {
+                                    setPage(1);
+                                    setShowReviewed(false);
+                                }}
+                                className={`di-btn text-sm ${!showReviewed ? 'border border-di-accent bg-di-accent/10 text-di-accent' : 'border border-di-border text-di-text-secondary'}`}
                             >
                                 Unreviewed
                             </button>
                             <button
-                                onClick={() => setShowReviewed(true)}
-                                className={`di-btn text-sm ${showReviewed ? 'bg-di-accent/10 text-di-accent border border-di-accent' : 'text-di-text-secondary border border-di-border'}`}
+                                type="button"
+                                onClick={() => {
+                                    setPage(1);
+                                    setShowReviewed(true);
+                                }}
+                                className={`di-btn text-sm ${showReviewed ? 'border border-di-accent bg-di-accent/10 text-di-accent' : 'border border-di-border text-di-text-secondary'}`}
                             >
                                 Reviewed
                             </button>
@@ -70,20 +129,91 @@ function MisinfoMonitorPage() {
                     </div>
                 </div>
 
-                {/* Feed */}
-                <div className="space-y-4">
-                    <div className="di-card text-center py-16">
-                        <div className="text-5xl mb-4">🛡️</div>
-                        <h2 className="text-xl font-semibold text-di-text mb-2">
-                            No Flagged Posts Yet
-                        </h2>
-                        <p className="text-di-text-secondary max-w-md mx-auto">
-                            The misinformation detection pipeline will flag posts
-                            containing potentially dangerous medical claims.
-                            Results will appear here after processing.
-                        </p>
+                {error ? (
+                    <div className="di-card">
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2 className="di-section-title mb-1">Feed Error</h2>
+                                <p className="text-sm text-di-text-secondary">{error}</p>
+                            </div>
+                            <button type="button" className="di-btn-secondary" onClick={() => loadFeed()}>
+                                Retry
+                            </button>
+                        </div>
                     </div>
-                </div>
+                ) : loading && !feed ? (
+                    <SkeletonList items={6} />
+                ) : (
+                    <div className="space-y-4">
+                        {(feed?.flags || []).length ? (
+                            feed.flags.map((flag) => (
+                                <div key={flag.id} className="di-card">
+                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="di-badge-red capitalize">{flag.flag_reason}</span>
+                                                <span className="di-badge-yellow">{Math.round(flag.confidence * 100)}%</span>
+                                                <span className={flag.reviewed ? 'di-badge-green' : 'di-badge-yellow'}>
+                                                    {flag.reviewed ? 'Reviewed' : 'Unreviewed'}
+                                                </span>
+                                            </div>
+                                            <p className="mt-4 text-base text-di-text">
+                                                {flag.claim_text.slice(0, 150)}{flag.claim_text.length > 150 ? '...' : ''}
+                                            </p>
+                                            <p className="mt-3 text-sm text-di-text-secondary">
+                                                {flag.excerpt}
+                                            </p>
+                                            <div className="mt-4 text-xs text-di-text-secondary">
+                                                Flagged on {formatDate(flag.flagged_at)}
+                                            </div>
+                                        </div>
+                                        {!flag.reviewed ? (
+                                            <button
+                                                type="button"
+                                                className="di-btn-primary whitespace-nowrap"
+                                                disabled={reviewingId === flag.id}
+                                                onClick={() => handleMarkReviewed(flag.id)}
+                                            >
+                                                {reviewingId === flag.id ? 'Saving...' : 'Mark as Reviewed'}
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="di-card py-16 text-center">
+                                <h2 className="text-xl font-semibold text-di-text">No flagged posts</h2>
+                                <p className="mx-auto mt-3 max-w-xl text-sm text-di-text-secondary">
+                                    No misinformation flags match the current confidence threshold and review filter.
+                                </p>
+                            </div>
+                        )}
+
+                        <div className="di-card">
+                            <div className="flex items-center justify-between">
+                                <button
+                                    type="button"
+                                    className="di-btn-secondary"
+                                    disabled={page <= 1 || loading}
+                                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                                >
+                                    Previous
+                                </button>
+                                <span className="text-sm text-di-text-secondary">
+                                    Page {page} of {totalPages}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="di-btn-secondary"
+                                    disabled={page >= totalPages || loading}
+                                    onClick={() => setPage((current) => current + 1)}
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </ErrorBoundary>
     );
