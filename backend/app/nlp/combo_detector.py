@@ -1,11 +1,11 @@
 """
-DiaIntel — Combination Detector
+DiaIntel - Combination Detector
 Detects drug combinations from a processed post and updates drug_combinations.
 """
 
 import itertools
 import logging
-from typing import List
+from typing import Dict, List
 
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
@@ -24,6 +24,26 @@ def _score_combo_text(text: str) -> float:
     return max(0.0, min(1.0, score))
 
 
+def detect_combinations(drug_names: List[str], text: str) -> List[Dict]:
+    """Return concurrent drug pairs inferred from a text window."""
+    unique_drugs = sorted({drug for drug in drug_names if drug})
+    if len(unique_drugs) < 2:
+        return []
+
+    score = _score_combo_text(text or "")
+    if score < 0.4:
+        return []
+
+    return [
+        {
+            "drug_1": pair[0],
+            "drug_2": pair[1],
+            "concurrency_score": round(score, 4),
+        }
+        for pair in itertools.combinations(unique_drugs, 2)
+    ]
+
+
 def detect_combos_for_post(post_id: int, text: str, db: Session) -> int:
     """
     Detect co-mentioned drug pairs for a processed post.
@@ -40,25 +60,9 @@ def detect_combos_for_post(post_id: int, text: str, db: Session) -> int:
         {"post_id": post_id},
     ).scalars().all()
 
-    unique_drugs = sorted({mention for mention in mentions if mention})
-    if len(unique_drugs) < 2:
+    records = detect_combinations(list(mentions), text)
+    if not records:
         return 0
-
-    score = _score_combo_text(text or "")
-    if score < 0.4:
-        return 0
-
-    records = []
-    for drug_1, drug_2 in itertools.combinations(unique_drugs, 2):
-        ordered_pair: List[str] = sorted([drug_1, drug_2])
-        records.append(
-            {
-                "drug_1": ordered_pair[0],
-                "drug_2": ordered_pair[1],
-                "concurrency_score": round(score, 4),
-                "example_post_id": post_id,
-            }
-        )
 
     db.execute(
         sql_text(
@@ -75,6 +79,14 @@ def detect_combos_for_post(post_id: int, text: str, db: Session) -> int:
                 last_updated = NOW()
             """
         ),
-        records,
+        [
+            {
+                "drug_1": row["drug_1"],
+                "drug_2": row["drug_2"],
+                "concurrency_score": row["concurrency_score"],
+                "example_post_id": post_id,
+            }
+            for row in records
+        ],
     )
     return len(records)

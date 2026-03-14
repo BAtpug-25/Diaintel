@@ -1,5 +1,5 @@
 """
-DiaIntel — Outcome Extractor
+DiaIntel - Outcome Extractor
 Rule-based treatment outcome extraction written to treatment_outcomes.
 """
 
@@ -108,12 +108,10 @@ def _extract_duration(sentence_text: str) -> str | None:
     return duration_match.group(1) if duration_match else None
 
 
-def process_outcomes_for_post(post_id: int, text: str, drug_names: List[str], db: Session) -> int:
-    """
-    Extract outcomes for a processed post and insert them into treatment_outcomes.
-    """
+def extract_outcomes(text: str, drug_names: List[str]) -> List[Dict]:
+    """Extract treatment outcomes without writing to the database."""
     if not text or not drug_names:
-        return 0
+        return []
 
     nlp, matcher = _get_nlp()
     doc = nlp(text)
@@ -165,17 +163,23 @@ def process_outcomes_for_post(post_id: int, text: str, drug_names: List[str], db
                 seen.add(dedupe_key)
                 records.append(
                     {
-                        "post_id": post_id,
                         "drug_name": drug_name,
                         "outcome_category": category,
                         "outcome_text": sentence_text,
                         "polarity": polarity,
                         "confidence": confidence,
                         "duration": duration,
-                        "detected_at": datetime.now(timezone.utc),
                     }
                 )
 
+    return records
+
+
+def process_outcomes_for_post(post_id: int, text: str, drug_names: List[str], db: Session) -> int:
+    """
+    Extract outcomes for a processed post and insert them into treatment_outcomes.
+    """
+    records = extract_outcomes(text, drug_names)
     if not records:
         return 0
 
@@ -188,6 +192,18 @@ def process_outcomes_for_post(post_id: int, text: str, drug_names: List[str], db
                 (:post_id, :drug_name, :outcome_category, :outcome_text, :polarity, :confidence, :duration, :detected_at)
             """
         ),
-        records,
+        [
+            {
+                "post_id": post_id,
+                "drug_name": row["drug_name"],
+                "outcome_category": row["outcome_category"],
+                "outcome_text": row["outcome_text"],
+                "polarity": row["polarity"],
+                "confidence": row["confidence"],
+                "duration": row["duration"],
+                "detected_at": datetime.now(timezone.utc),
+            }
+            for row in records
+        ],
     )
     return len(records)

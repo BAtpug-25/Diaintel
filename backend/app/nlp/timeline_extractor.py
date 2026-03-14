@@ -1,11 +1,11 @@
 """
-DiaIntel — Timeline Extractor
+DiaIntel - Timeline Extractor
 Associates temporal expressions with nearby adverse events.
 """
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import spacy
 from sqlalchemy import text as sql_text
@@ -79,6 +79,46 @@ def _collect_temporal_spans(text: str) -> List[Tuple[int, int, str]]:
     return [(start, end, label) for (start, end), label in sorted(deduped.items(), key=lambda item: item[0][0])]
 
 
+def extract_timeline_matches(text: str, ae_terms: List[str]) -> List[Dict]:
+    """Return timeline markers associated with the nearest AE mention in the text."""
+    if not text or not ae_terms:
+        return []
+
+    tokens = _tokenize_with_offsets(text)
+    if not tokens:
+        return []
+
+    text_lower = text.lower()
+    ae_occurrences: List[Dict] = []
+    for ae_term in ae_terms:
+        lowered_term = (ae_term or "").lower()
+        if not lowered_term:
+            continue
+        for match in re.finditer(re.escape(lowered_term), text_lower):
+            ae_occurrences.append(
+                {
+                    "ae_term": ae_term,
+                    "token_index": _char_to_token_index(tokens, match.start()),
+                }
+            )
+            break
+
+    if not ae_occurrences:
+        return []
+
+    matches = {}
+    for span_start, _, label in _collect_temporal_spans(text):
+        span_token_index = _char_to_token_index(tokens, span_start)
+        nearest = min(ae_occurrences, key=lambda item: abs(item["token_index"] - span_token_index))
+        if abs(nearest["token_index"] - span_token_index) <= 15:
+            matches[nearest["ae_term"]] = label
+
+    return [
+        {"ae_term": ae_term, "temporal_marker": marker}
+        for ae_term, marker in matches.items()
+    ]
+
+
 def extract_timelines_for_post(post_id: int, text: str, db: Session) -> int:
     """
     Update ae_signals.temporal_marker for AE rows whose mention is near a temporal expression.
@@ -100,41 +140,20 @@ def extract_timelines_for_post(post_id: int, text: str, db: Session) -> int:
     if not ae_rows:
         return 0
 
-    tokens = _tokenize_with_offsets(text)
-    if not tokens:
+    timeline_matches = extract_timeline_matches(text, [row["ae_term"] for row in ae_rows])
+    if not timeline_matches:
         return 0
 
-    ae_occurrences: List[Dict] = []
-    text_lower = text.lower()
-    for row in ae_rows:
-        ae_term = row["ae_term"].lower()
-        for match in re.finditer(re.escape(ae_term), text_lower):
-            ae_occurrences.append(
-                {
-                    "id": row["id"],
-                    "ae_term": row["ae_term"],
-                    "token_index": _char_to_token_index(tokens, match.start()),
-                }
-            )
-            break
-
-    if not ae_occurrences:
-        return 0
-
-    updates = {}
-    for span_start, span_end, label in _collect_temporal_spans(text):
-        span_token_index = _char_to_token_index(tokens, span_start)
-        nearest = min(
-            ae_occurrences,
-            key=lambda item: abs(item["token_index"] - span_token_index),
-        )
-        if abs(nearest["token_index"] - span_token_index) <= 15:
-            updates[nearest["id"]] = label
+    updates = []
+    for match in timeline_matches:
+        ae_row = next((row for row in ae_rows if row["ae_term"] == match["ae_term"]), None)
+        if ae_row is None:
+            continue
+        updates.append({"id": ae_row["id"], "temporal_marker": match["temporal_marker"]})
 
     if not updates:
         return 0
 
-    payload = [{"id": ae_id, "temporal_marker": marker} for ae_id, marker in updates.items()]
     db.execute(
         sql_text(
             """
@@ -144,6 +163,6 @@ def extract_timelines_for_post(post_id: int, text: str, db: Session) -> int:
               AND (temporal_marker IS NULL OR temporal_marker = '')
             """
         ),
-        payload,
+        updates,
     )
-    return len(payload)
+    return len(updates)

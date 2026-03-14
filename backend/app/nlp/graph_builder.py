@@ -1,6 +1,6 @@
 """
-DiaIntel — Knowledge Graph Builder
-Maintains the Drug-AE graph in memory and in drug_ae_graph.
+DiaIntel - Knowledge Graph Builder
+Maintains the treatment intelligence graph in memory and exposes JSON for the API.
 """
 
 import logging
@@ -13,7 +13,7 @@ logger = logging.getLogger("diaintel.nlp.graph_builder")
 
 
 class GraphBuilder:
-    """Builds and queries the Drug-AE knowledge graph."""
+    """Builds and queries the DiaIntel knowledge graph."""
 
     def __init__(self):
         self.graph = nx.Graph()
@@ -21,7 +21,8 @@ class GraphBuilder:
 
     def build_from_db(self, db_session) -> nx.Graph:
         self.graph.clear()
-        rows = db_session.execute(
+
+        ae_rows = db_session.execute(
             sql_text(
                 """
                 SELECT drug_name, ae_term, edge_weight
@@ -30,18 +31,75 @@ class GraphBuilder:
                 """
             )
         ).mappings().all()
+        for row in ae_rows:
+            self._add_typed_edge(
+                row["drug_name"],
+                row["ae_term"],
+                int(row["edge_weight"] or 0),
+                edge_type="drug_ae",
+                source_type="drug",
+                target_type="ae",
+            )
 
-        for row in rows:
-            self.add_edge(row["drug_name"], row["ae_term"], row["edge_weight"])
+        outcome_rows = db_session.execute(
+            sql_text(
+                """
+                SELECT drug_name, outcome_category, COUNT(*) AS weight
+                FROM treatment_outcomes
+                GROUP BY drug_name, outcome_category
+                ORDER BY weight DESC, drug_name, outcome_category
+                """
+            )
+        ).mappings().all()
+        for row in outcome_rows:
+            self._add_typed_edge(
+                row["drug_name"],
+                row["outcome_category"],
+                int(row["weight"] or 0),
+                edge_type="drug_outcome",
+                source_type="drug",
+                target_type="outcome",
+            )
+
+        combo_rows = db_session.execute(
+            sql_text(
+                """
+                SELECT drug_1, drug_2, post_count
+                FROM drug_combinations
+                ORDER BY post_count DESC, drug_1, drug_2
+                """
+            )
+        ).mappings().all()
+        for row in combo_rows:
+            self._add_typed_edge(
+                row["drug_1"],
+                row["drug_2"],
+                int(row["post_count"] or 0),
+                edge_type="drug_combination",
+                source_type="drug",
+                target_type="drug",
+            )
+
         return self.graph
 
-    def add_edge(self, drug: str, ae: str, weight: int = 1):
-        if self.graph.has_edge(drug, ae):
-            self.graph[drug][ae]["weight"] += weight
+    def _add_typed_edge(
+        self,
+        source: str,
+        target: str,
+        weight: int,
+        *,
+        edge_type: str,
+        source_type: str,
+        target_type: str,
+    ):
+        self.graph.add_node(source, type=source_type)
+        self.graph.add_node(target, type=target_type)
+
+        if self.graph.has_edge(source, target):
+            self.graph[source][target]["weight"] += weight
+            self.graph[source][target]["type"] = edge_type
         else:
-            self.graph.add_node(drug, type="drug")
-            self.graph.add_node(ae, type="ae")
-            self.graph.add_edge(drug, ae, weight=weight)
+            self.graph.add_edge(source, target, weight=weight, type=edge_type)
 
     def update_graph_for_post(self, post_id: int, db_session) -> int:
         rows = db_session.execute(
@@ -80,7 +138,14 @@ class GraphBuilder:
         )
 
         for row in rows:
-            self.add_edge(row["drug_name"], row["ae_term"], row["cnt"])
+            self._add_typed_edge(
+                row["drug_name"],
+                row["ae_term"],
+                int(row["cnt"] or 0),
+                edge_type="drug_ae",
+                source_type="drug",
+                target_type="ae",
+            )
 
         return len(rows)
 
@@ -88,16 +153,10 @@ class GraphBuilder:
         if drug not in self.graph:
             return []
         neighbors = []
-        for ae in self.graph.neighbors(drug):
-            neighbors.append((ae, self.graph[drug][ae].get("weight", 1)))
-        return sorted(neighbors, key=lambda item: item[1], reverse=True)
-
-    def get_ae_drugs(self, ae: str) -> List[Tuple[str, int]]:
-        if ae not in self.graph:
-            return []
-        neighbors = []
-        for drug in self.graph.neighbors(ae):
-            neighbors.append((drug, self.graph[drug][ae].get("weight", 1)))
+        for node in self.graph.neighbors(drug):
+            edge = self.graph[drug][node]
+            if edge.get("type") == "drug_ae":
+                neighbors.append((node, edge.get("weight", 1)))
         return sorted(neighbors, key=lambda item: item[1], reverse=True)
 
     def to_json(self) -> Dict:
@@ -107,8 +166,8 @@ class GraphBuilder:
                 {
                     "id": node,
                     "label": node,
-                    "type": data.get("type", "unknown"),
-                    "size": self.graph.degree(node),
+                    "type": data.get("type", "ae"),
+                    "size": max(1, self.graph.degree(node)),
                 }
             )
 
@@ -118,19 +177,35 @@ class GraphBuilder:
                 {
                     "source": source,
                     "target": target,
-                    "weight": data.get("weight", 1),
+                    "weight": int(data.get("weight", 1)),
+                    "type": data.get("type", "drug_ae"),
                 }
             )
 
-        return {"nodes": nodes, "edges": edges}
+        return {"nodes": nodes, "edges": edges, "stats": self.get_stats()}
 
     def get_stats(self) -> Dict:
-        return {
+        stats = {
             "total_nodes": self.graph.number_of_nodes(),
             "total_edges": self.graph.number_of_edges(),
-            "drug_nodes": sum(1 for _, data in self.graph.nodes(data=True) if data.get("type") == "drug"),
-            "ae_nodes": sum(1 for _, data in self.graph.nodes(data=True) if data.get("type") == "ae"),
+            "drug_nodes": 0,
+            "ae_nodes": 0,
+            "outcome_nodes": 0,
+            "drug_combination_edges": 0,
         }
+        for _, data in self.graph.nodes(data=True):
+            node_type = data.get("type")
+            if node_type == "drug":
+                stats["drug_nodes"] += 1
+            elif node_type == "ae":
+                stats["ae_nodes"] += 1
+            elif node_type == "outcome":
+                stats["outcome_nodes"] += 1
+
+        for _, _, data in self.graph.edges(data=True):
+            if data.get("type") == "drug_combination":
+                stats["drug_combination_edges"] += 1
+        return stats
 
 
 graph_builder = GraphBuilder()
