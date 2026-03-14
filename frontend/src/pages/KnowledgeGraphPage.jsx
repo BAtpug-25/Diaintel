@@ -11,30 +11,6 @@ const NODE_COLORS = {
     outcome: '#8B5CF6',
 };
 
-const DRUG_FILTERS = [
-    'metformin',
-    'ozempic',
-    'semaglutide',
-    'wegovy',
-    'liraglutide',
-    'dulaglutide',
-    'empagliflozin',
-    'glipizide',
-    'dapagliflozin',
-    'sitagliptin',
-    'januvia',
-    'victoza',
-    'trulicity',
-    'jardiance',
-];
-
-const cleanLabel = (str) => str
-    .replace(/_/g, ' ')
-    .split(' ')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(' ')
-    .replace(/'\s*\w/g, (c) => c.toLowerCase());
-
 function ErrorCard({ error, onRetry }) {
     return (
         <div className="di-card">
@@ -55,7 +31,6 @@ function KnowledgeGraphPage() {
     const [graphData, setGraphData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [selectedDrugs, setSelectedDrugs] = useState([]);
     const svgRef = useRef(null);
     const containerRef = useRef(null);
 
@@ -81,91 +56,62 @@ function KnowledgeGraphPage() {
             return undefined;
         }
 
-        const containerWidth = containerRef.current.clientWidth || 1100;
+        const containerWidth = containerRef.current.clientWidth || 960;
         const width = containerWidth;
-        const height = 750;
+        const height = 600;
         const svg = d3.select(svgRef.current);
         svg.selectAll('*').remove();
         svg.attr('viewBox', `0 0 ${width} ${height}`);
 
         const root = svg.append('g');
-        const zoomBehavior = d3
-            .zoom()
-            .scaleExtent([0.45, 2.4])
-            .on('zoom', (event) => {
+        svg.call(
+            d3.zoom().scaleExtent([0.5, 2.5]).on('zoom', (event) => {
                 root.attr('transform', event.transform);
-            });
-
-        svg.call(zoomBehavior);
-        svg.on('dblclick.zoom', null);
-        svg.on('dblclick', () => {
-            setSelectedDrugs([]);
-            svg.transition().duration(250).call(zoomBehavior.transform, d3.zoomIdentity);
-        });
+            })
+        );
 
         const links = graphData.edges.map((edge) => ({ ...edge }));
         const nodes = graphData.nodes.map((node) => ({ ...node }));
         const neighborMap = new Map();
 
         links.forEach((link) => {
-            const sourceId = link.source.id || link.source;
-            const targetId = link.target.id || link.target;
-            if (!neighborMap.has(sourceId)) {
-                neighborMap.set(sourceId, new Set());
+            if (!neighborMap.has(link.source)) {
+                neighborMap.set(link.source, new Set());
             }
-            if (!neighborMap.has(targetId)) {
-                neighborMap.set(targetId, new Set());
+            if (!neighborMap.has(link.target)) {
+                neighborMap.set(link.target, new Set());
             }
-            neighborMap.get(sourceId).add(targetId);
-            neighborMap.get(targetId).add(sourceId);
+            neighborMap.get(link.source).add(link.target);
+            neighborMap.get(link.target).add(link.source);
         });
-
-        const selectedDrugSet = new Set(selectedDrugs);
-        const highlightedIds = new Set();
-        if (selectedDrugSet.size) {
-            selectedDrugSet.forEach((drug) => {
-                highlightedIds.add(drug);
-                (neighborMap.get(drug) || []).forEach((neighbor) => highlightedIds.add(neighbor));
-            });
-        }
 
         const simulation = d3
             .forceSimulation(nodes)
-            .force(
-                'link',
-                d3.forceLink(links)
-                    .id((d) => d.id)
-                    .distance((d) => (d.type === 'drug_ae' ? 250 : d.type === 'drug_combination' ? 180 : 210))
-                    .strength(0.22)
-            )
-            .force('charge', d3.forceManyBody().strength(-1500))
+            .force('link', d3.forceLink(links).id((d) => d.id).distance((d) => (d.type === 'drug_combination' ? 90 : 130)))
+            .force('charge', d3.forceManyBody().strength(-260))
             .force('center', d3.forceCenter(width / 2, height / 2))
-            .force('x', d3.forceX(width / 2).strength(0.08))
-            .force('y', d3.forceY(height / 2).strength(0.04))
-            .force('collision', d3.forceCollide().radius((d) => (d.type === 'drug' ? 40 : d.type === 'ae' ? 22 : 28)));
+            .force('collision', d3.forceCollide().radius((d) => (d.type === 'drug' ? 26 : d.type === 'outcome' ? 20 : 14)));
 
         const link = root
             .append('g')
+            .attr('stroke', '#3A5A4D')
+            .attr('stroke-opacity', 0.7)
             .selectAll('line')
             .data(links)
             .join('line')
-            .attr('stroke', '#2a6b52')
-            .attr('stroke-opacity', 0.85)
-            .attr('stroke-width', (d) => Math.max(0.5, Math.sqrt(d.weight || 1) * 0.4));
+            .attr('stroke-width', (d) => Math.max(1.2, Math.sqrt(d.weight || 1)));
 
         const node = root
             .append('g')
             .selectAll('g')
             .data(nodes)
             .join('g')
-            .style('cursor', (d) => (d.type === 'drug' ? 'pointer' : 'grab'))
+            .style('cursor', 'pointer')
             .call(
                 d3
                     .drag()
                     .on('start', (event, d) => {
-                        if (!event.active) {
-                            simulation.alphaTarget(0.3).restart();
-                        }
+                        if (!event.active) simulation.alphaTarget(0.3).restart();
                         d.fx = d.x;
                         d.fy = d.y;
                     })
@@ -174,9 +120,7 @@ function KnowledgeGraphPage() {
                         d.fy = event.y;
                     })
                     .on('end', (event, d) => {
-                        if (!event.active) {
-                            simulation.alphaTarget(0);
-                        }
+                        if (!event.active) simulation.alphaTarget(0);
                         d.fx = null;
                         d.fy = null;
                     })
@@ -184,87 +128,44 @@ function KnowledgeGraphPage() {
 
         node
             .append('circle')
-            .attr('r', (d) => (d.type === 'drug' ? 20 : d.type === 'outcome' ? 12 : 10))
+            .attr('r', (d) => (d.type === 'drug' ? 16 : d.type === 'outcome' ? 12 : 9))
             .attr('fill', (d) => NODE_COLORS[d.type] || NODE_COLORS.ae)
-            .attr('stroke', '#ffffff')
-            .attr('stroke-width', (d) => (d.type === 'drug' ? 1.5 : d.type === 'outcome' ? 1 : 0.8));
-
-        node.each(function addLabelElements(d) {
-            const group = d3.select(this);
-            const label = cleanLabel(d.label);
-            const fontSize = d.type === 'drug' ? 13 : 11;
-            const rectWidth = label.length * 7;
-
-            group
-                .append('rect')
-                .attr('x', 14)
-                .attr('y', -8)
-                .attr('width', rectWidth)
-                .attr('height', 16)
-                .attr('rx', 3)
-                .attr('fill', '#0d1f18')
-                .attr('opacity', 0.75);
-
-            group
-                .append('text')
-                .text(label)
-                .attr('fill', '#FFFFFF')
-                .attr('font-size', fontSize)
-                .attr('font-weight', d.type === 'drug' ? 700 : 400)
-                .attr('dx', 18)
-                .attr('dy', 4);
-        });
-
-        node.on('click', (_, clickedNode) => {
-            if (clickedNode.type !== 'drug') {
-                return;
-            }
-            setSelectedDrugs((current) =>
-                current.includes(clickedNode.id)
-                    ? current.filter((drug) => drug !== clickedNode.id)
-                    : [...current, clickedNode.id]
-            );
-        });
+            .attr('stroke', '#DDECE6')
+            .attr('stroke-width', 1.2);
 
         node
-            .transition()
-            .duration(180)
-            .style('opacity', (d) => {
-                if (!selectedDrugSet.size) {
-                    return 1;
-                }
-                return highlightedIds.has(d.id) ? 1 : 0.08;
-            });
+            .append('text')
+            .text((d) => d.label)
+            .attr('fill', '#FFFFFF')
+            .attr('font-size', 11)
+            .attr('dx', 14)
+            .attr('dy', 4);
 
-        link
-            .transition()
-            .duration(180)
-            .attr('stroke', (d) => {
-                if (!selectedDrugSet.size) {
-                    return '#2a6b52';
-                }
-                const sourceId = d.source.id || d.source;
-                const targetId = d.target.id || d.target;
-                return selectedDrugSet.has(sourceId) || selectedDrugSet.has(targetId) ? '#00C896' : '#2a6b52';
-            })
-            .attr('stroke-width', (d) => {
-                if (!selectedDrugSet.size) {
-                    return Math.max(0.5, Math.sqrt(d.weight || 1) * 0.4);
-                }
-                const sourceId = d.source.id || d.source;
-                const targetId = d.target.id || d.target;
-                return selectedDrugSet.has(sourceId) || selectedDrugSet.has(targetId)
-                    ? 2
-                    : Math.max(0.5, Math.sqrt(d.weight || 1) * 0.4);
-            })
-            .style('opacity', (d) => {
-                if (!selectedDrugSet.size) {
-                    return 0.85;
-                }
-                const sourceId = d.source.id || d.source;
-                const targetId = d.target.id || d.target;
-                return selectedDrugSet.has(sourceId) || selectedDrugSet.has(targetId) ? 1 : 0.08;
-            });
+        const resetHighlight = () => {
+            node.transition().duration(180).style('opacity', 1);
+            link.transition().duration(180).style('opacity', 0.7);
+        };
+
+        node.on('click', (_, clickedNode) => {
+            const connectedNodes = neighborMap.get(clickedNode.id) || new Set();
+            connectedNodes.add(clickedNode.id);
+
+            node
+                .transition()
+                .duration(180)
+                .style('opacity', (d) => (connectedNodes.has(d.id) ? 1 : 0.15));
+
+            link
+                .transition()
+                .duration(180)
+                .style('opacity', (d) =>
+                    d.source.id === clickedNode.id || d.target.id === clickedNode.id ? 1 : 0.08
+                );
+        });
+
+        svg.on('dblclick', () => {
+            resetHighlight();
+        });
 
         simulation.on('tick', () => {
             link
@@ -281,20 +182,12 @@ function KnowledgeGraphPage() {
             svg.on('.zoom', null);
             svg.on('dblclick', null);
         };
-    }, [graphData, selectedDrugs]);
+    }, [graphData]);
 
     const stats = useMemo(() => {
         const fallback = { drug_nodes: 0, ae_nodes: 0, total_edges: 0 };
         return graphData?.stats || fallback;
     }, [graphData]);
-
-    const toggleDrug = (drug) => {
-        setSelectedDrugs((current) =>
-            current.includes(drug)
-                ? current.filter((entry) => entry !== drug)
-                : [...current, drug]
-        );
-    };
 
     return (
         <ErrorBoundary>
@@ -307,88 +200,22 @@ function KnowledgeGraphPage() {
                         </p>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-di-text-secondary">
-                        <div className="flex items-center gap-2">
-                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: NODE_COLORS.drug }} />
-                            <span>Medication</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: NODE_COLORS.ae }} />
-                            <span>Side Effect</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: NODE_COLORS.outcome }} />
-                            <span>Outcome</span>
-                        </div>
+                        <div className="flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: NODE_COLORS.drug }} /><span>Medication</span></div>
+                        <div className="flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: NODE_COLORS.ae }} /><span>Side Effect</span></div>
                     </div>
                 </div>
 
-                <div className="di-card">
-                    <div className="mb-4 flex flex-wrap items-center gap-2">
-                        {DRUG_FILTERS.map((drug) => {
-                            const isActive = selectedDrugs.includes(drug);
-                            return (
-                                <button
-                                    key={drug}
-                                    type="button"
-                                    onClick={() => toggleDrug(drug)}
-                                    className="rounded-full px-3 py-1.5 text-xs transition-colors"
-                                    style={
-                                        isActive
-                                            ? {
-                                                  background: 'rgba(0,200,150,0.15)',
-                                                  border: '2px solid #00C896',
-                                                  color: '#00C896',
-                                                  fontWeight: 700,
-                                              }
-                                            : {
-                                                  background: 'transparent',
-                                                  border: '1px solid rgba(255,255,255,0.15)',
-                                                  color: 'rgba(255,255,255,0.6)',
-                                              }
-                                    }
-                                >
-                                    {cleanLabel(drug)}
-                                </button>
-                            );
-                        })}
-                        {selectedDrugs.length ? (
-                            <button
-                                type="button"
-                                onClick={() => setSelectedDrugs([])}
-                                className="rounded-full px-3 py-1.5 text-xs transition-colors"
-                                style={{
-                                    background: 'rgba(0,200,150,0.15)',
-                                    border: '2px solid #00C896',
-                                    color: '#00C896',
-                                    fontWeight: 700,
-                                }}
-                            >
-                                Clear selection
-                            </button>
-                        ) : null}
-                    </div>
-
-                    <p className="mb-4 text-xs text-di-text-secondary">
-                        Click a medication to highlight its side effects. Click again to deselect. Drag nodes to rearrange.
-                    </p>
-
-                    {error ? (
-                        <ErrorCard error={error} onRetry={loadGraph} />
-                    ) : loading && !graphData ? (
-                        <SkeletonChart height="h-[750px]" />
-                    ) : (
-                        <div
-                            ref={containerRef}
-                            className="h-[750px] w-full overflow-hidden rounded-xl"
-                            style={{
-                                background: 'radial-gradient(ellipse at center, #0d2018 0%, #071510 100%)',
-                                border: '1px solid rgba(0,200,150,0.15)',
-                            }}
-                        >
+                {error ? (
+                    <ErrorCard error={error} onRetry={loadGraph} />
+                ) : loading && !graphData ? (
+                    <SkeletonChart height="h-[600px]" />
+                ) : (
+                    <div className="di-card">
+                        <div ref={containerRef} className="h-[600px] w-full overflow-hidden rounded-xl bg-di-bg/50">
                             <svg ref={svgRef} className="h-full w-full" />
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <div className="di-card text-center">
@@ -410,3 +237,4 @@ function KnowledgeGraphPage() {
 }
 
 export default KnowledgeGraphPage;
+
