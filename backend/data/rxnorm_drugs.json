@@ -1,0 +1,108 @@
+{
+    "metformin": {
+        "generic": "metformin",
+        "brands": [
+            "Glucophage",
+            "Glumetza",
+            "Fortamet",
+            "Riomet"
+        ],
+        "class": "Biguanide",
+        "rxcui": "6809",
+        "variants": [
+            "metformin",
+            "glucophage",
+            "glumetza",
+            "fortamet"
+        ]
+    },
+    "semaglutide": {
+        "generic": "semaglutide",
+        "brands": [
+            "Ozempic",
+            "Wegovy",
+            "Rybelsus"
+        ],
+        "class": "GLP-1 Receptor Agonist",
+        "rxcui": "1991302",
+        "variants": [
+            "semaglutide",
+            "ozempic",
+            "wegovy"
+        ]
+    },
+    "empagliflozin": {
+        "generic": "empagliflozin",
+        "brands": [
+            "Jardiance"
+        ],
+        "class": "SGLT2 Inhibitor",
+        "rxcui": "1545653",
+        "variants": [
+            "empagliflozin",
+            "jardiance"
+        ]
+    },
+    "sitagliptin": {
+        "generic": "sitagliptin",
+        "brands": [
+            "Januvia"
+        ],
+        "class": "DPP-4 Inhibitor",
+        "rxcui": "593411",
+        "variants": [
+            "sitagliptin",
+            "januvia"
+        ]
+    },
+    "dapagliflozin": {
+        "generic": "dapagliflozin",
+        "brands": [
+            "Farxiga",
+            "Forxiga"
+        ],
+        "class": "SGLT2 Inhibitor",
+        "rxcui": "1373458",
+        "variants": [
+            "dapagliflozin",
+            "farxiga"
+        ]
+    },
+    "dulaglutide": {
+        "generic": "dulaglutide",
+        "brands": [
+            "Trulicity"
+        ],
+        "class": "GLP-1 Receptor Agonist",
+        "rxcui": "1551291",
+        "variants": [
+            "dulaglutide",
+            "trulicity"
+        ]
+    },
+    "liraglutide": {
+        "generic": "liraglutide",
+        "brands": [
+            "Victoza",
+            "Saxenda"
+        ],
+        "class": "GLP-1 Receptor Agonist",
+        "rxcui": "475968",
+        "variants": [
+            "liraglutide",
+            "victoza"
+        ]
+    },
+    "glipizide": {
+        "generic": "glipizide",
+        "brands": [
+            "Glucotrol"
+        ],
+        "class": "Sulfonylurea",
+        "rxcui": "4815",
+        "variants": [
+            "glipizide",
+            "glucotrol"
+        ]
+    }
+}

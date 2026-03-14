@@ -1,0 +1,83 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    platform: linux/amd64
+    container_name: diaintel-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-diaintel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-diaintel_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-diaintel}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U diaintel -d diaintel"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+    networks:
+      - diaintel-network
+
+  redis:
+    image: redis:7-alpine
+    platform: linux/amd64
+    container_name: diaintel-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+    networks:
+      - diaintel-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: diaintel-backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - models_data:/models
+      - ./backend/data/raw:/app/data/raw
+      - ./backend:/app
+    env_file:
+      - ./backend/.env.example
+    environment:
+      - TOKENIZERS_PARALLELISM=false
+    networks:
+      - diaintel-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: diaintel-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - diaintel-network
+
+networks:
+  diaintel-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  models_data:

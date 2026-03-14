@@ -1,0 +1,192 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   DiaIntel Design System
+   ============================================================ */
+
+:root {
+  --di-bg: #0A1F1A;
+  --di-card: #112820;
+  --di-accent: #00C896;
+  --di-accent-dim: #00A87A;
+  --di-text: #FFFFFF;
+  --di-text-secondary: #8BA89E;
+  --di-warning: #F59E0B;
+  --di-severity-high: #EF4444;
+  --di-severity-medium: #F59E0B;
+  --di-severity-low: #10B981;
+  --di-border: #1E3A2F;
+}
+
+/* Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--di-bg);
+  color: var(--di-text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--di-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--di-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--di-accent-dim);
+}
+
+/* ============================================================
+   Component Styles
+   ============================================================ */
+
+@layer components {
+  /* Card Component */
+  .di-card {
+    @apply bg-di-card rounded-xl border border-di-border p-6;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .di-card:hover {
+    border-color: rgba(0, 200, 150, 0.3);
+    box-shadow: 0 0 20px rgba(0, 200, 150, 0.05);
+  }
+
+  /* Stat Display */
+  .di-stat-value {
+    @apply text-3xl font-bold text-di-accent;
+    letter-spacing: -0.02em;
+  }
+
+  .di-stat-label {
+    @apply text-sm text-di-text-secondary font-medium mt-1;
+  }
+
+  /* Badge */
+  .di-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .di-badge-green {
+    @apply di-badge bg-di-severity-low/20 text-di-severity-low;
+  }
+
+  .di-badge-yellow {
+    @apply di-badge bg-di-warning/20 text-di-warning;
+  }
+
+  .di-badge-red {
+    @apply di-badge bg-di-severity-high/20 text-di-severity-high;
+  }
+
+  /* Confidence Badge */
+  .di-confidence {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono;
+    background: rgba(0, 200, 150, 0.1);
+    color: var(--di-accent);
+  }
+
+  /* Button */
+  .di-btn {
+    @apply px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200;
+  }
+
+  .di-btn-primary {
+    @apply di-btn bg-di-accent text-di-bg hover:bg-di-accent-dim;
+  }
+
+  .di-btn-secondary {
+    @apply di-btn border border-di-border text-di-text-secondary hover:border-di-accent hover:text-di-accent;
+  }
+
+  /* Input */
+  .di-input {
+    @apply w-full bg-di-bg border border-di-border rounded-lg px-4 py-2.5 text-di-text placeholder-di-text-secondary/50 focus:outline-none focus:border-di-accent transition-colors;
+  }
+
+  /* Skeleton Loader */
+  .di-skeleton {
+    @apply rounded animate-pulse;
+    background: linear-gradient(90deg, var(--di-card) 25%, rgba(30, 58, 47, 0.5) 50%, var(--di-card) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Section Title */
+  .di-section-title {
+    @apply text-lg font-semibold text-di-text mb-4;
+  }
+
+  /* Drug Highlight */
+  .highlight-drug {
+    @apply px-1 rounded;
+    background: rgba(0, 200, 150, 0.2);
+    color: #00C896;
+  }
+
+  .highlight-ae {
+    @apply px-1 rounded;
+    background: rgba(239, 68, 68, 0.2);
+    color: #EF4444;
+  }
+
+  .highlight-dosage {
+    @apply px-1 rounded;
+    background: rgba(59, 130, 246, 0.2);
+    color: #3B82F6;
+  }
+
+  /* Toast Notification */
+  .di-toast {
+    @apply fixed bottom-4 right-4 bg-di-card border border-di-accent rounded-lg px-4 py-3 shadow-xl;
+    animation: slideUp 0.3s ease-out;
+    z-index: 9999;
+  }
+}
+
+/* ============================================================
+   Utility Classes
+   ============================================================ */
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, var(--di-accent), #00E5A0);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-accent {
+    box-shadow: 0 0 20px rgba(0, 200, 150, 0.15);
+  }
+}
