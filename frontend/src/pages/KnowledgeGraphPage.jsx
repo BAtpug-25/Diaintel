@@ -256,7 +256,7 @@ function KnowledgeGraphPage() {
     }, [selectedDrugs]);
 
     useEffect(() => {
-        if (!containerRef.current) return undefined;
+        if (!graphData || !containerRef.current) return undefined;
 
         const updateWidth = () => {
             setGraphWidth(containerRef.current?.clientWidth || 0);
@@ -268,7 +268,7 @@ function KnowledgeGraphPage() {
         observer.observe(containerRef.current);
 
         return () => observer.disconnect();
-    }, []);
+    }, [graphData]);
 
     const normalizedGraph = useMemo(() => {
         if (!graphData) {
@@ -317,13 +317,20 @@ function KnowledgeGraphPage() {
         };
     }, [graphData]);
 
-    const drugNodes = useMemo(
-        () =>
-            normalizedGraph.nodes
-                .filter((node) => node.type === 'drug')
-                .sort((left, right) => getDisplayName(left.id).localeCompare(getDisplayName(right.id))),
-        [normalizedGraph.nodes]
-    );
+    const drugNodes = useMemo(() => {
+        const seen = new Map();
+
+        normalizedGraph.nodes
+            .filter((node) => node.type === 'drug')
+            .forEach((node) => {
+                const displayName = getDisplayName(node.id);
+                if (!seen.has(displayName) || (node.size || 0) > (seen.get(displayName).size || 0)) {
+                    seen.set(displayName, node);
+                }
+            });
+
+        return Array.from(seen.values()).sort((left, right) => getDisplayName(left.id).localeCompare(getDisplayName(right.id)));
+    }, [normalizedGraph.nodes]);
 
     const clickedNode = useMemo(
         () => normalizedGraph.nodeMap.get(clickedNodeId) || null,
@@ -375,9 +382,9 @@ function KnowledgeGraphPage() {
     }, [handleSoftReset]);
 
     useEffect(() => {
-        if (!svgRef.current || !graphWidth || normalizedGraph.nodes.length === 0) return undefined;
+        if (!svgRef.current || normalizedGraph.nodes.length === 0) return undefined;
 
-        const width = graphWidth;
+        const width = graphWidth || containerRef.current?.clientWidth || 960;
         const height = GRAPH_HEIGHT;
         const svg = d3.select(svgRef.current);
         const nodes = normalizedGraph.nodes.map((node) => ({ ...node }));
@@ -388,7 +395,11 @@ function KnowledgeGraphPage() {
         const prerunTicks = Math.max(1, Math.ceil(300 / Math.log(nodeCount + 1)));
 
         svg.selectAll('*').remove();
-        svg.attr('viewBox', `0 0 ${width} ${height}`).attr('preserveAspectRatio', 'xMidYMid meet');
+        svg
+            .attr('width', '100%')
+            .attr('height', '100%')
+            .attr('viewBox', `0 0 ${width} ${height}`)
+            .attr('preserveAspectRatio', 'xMidYMid meet');
 
         const defs = svg.append('defs');
         const glow = defs
@@ -461,6 +472,11 @@ function KnowledgeGraphPage() {
         for (let tick = 0; tick < prerunTicks; tick += 1) {
             simulation.tick();
         }
+
+        nodes.forEach((node) => {
+            node.x = Math.max(50, Math.min(width - 50, node.x || width / 2));
+            node.y = Math.max(50, Math.min(height - 50, node.y || height / 2));
+        });
 
         const link = linkLayer
             .selectAll('line')
@@ -701,7 +717,7 @@ function KnowledgeGraphPage() {
                                 >
                                     Reset view
                                 </button>
-                                <svg ref={svgRef} className="h-full w-full" />
+                                <svg ref={svgRef} className="h-full w-full" width="100%" height="100%" />
                                 <NodeInfoPanel node={clickedNode} neighborCount={clickedNodeNeighborCount} onClose={() => setClickedNodeId(null)} />
                             </div>
                         </div>
@@ -732,4 +748,3 @@ function KnowledgeGraphPage() {
 }
 
 export default KnowledgeGraphPage;
-
