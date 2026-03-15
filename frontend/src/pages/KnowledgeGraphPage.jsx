@@ -359,11 +359,18 @@ function KnowledgeGraphPage() {
     }, []);
 
     const clearAllSelections = useCallback(() => {
+        if (simulationRef.current) {
+            simulationRef.current.stop();
+        }
         setClickedNodeId(null);
         setSelectedDrugs(new Set());
     }, []);
 
     const handleSoftReset = useCallback(() => {
+        if (simulationRef.current) {
+            simulationRef.current.stop();
+        }
+
         if (clickedNodeIdRef.current) {
             setClickedNodeId(null);
             return;
@@ -499,31 +506,51 @@ function KnowledgeGraphPage() {
             .attr('stroke-opacity', 0.55)
             .attr('stroke-width', (edge) => Math.max(0.3, Math.sqrt(edge.weight || 1) * 0.25));
 
+        const dragBehavior = d3
+            .drag()
+            .on('start', (event, graphNode) => {
+                graphNode.wasDragged = false;
+                graphNode.fx = graphNode.x;
+                graphNode.fy = graphNode.y;
+            })
+            .on('drag', (event, graphNode) => {
+                if (!graphNode.wasDragged) {
+                    graphNode.wasDragged = true;
+                    background.style('cursor', 'grabbing');
+                    if (settleTimeoutRef.current) {
+                        clearTimeout(settleTimeoutRef.current);
+                        settleTimeoutRef.current = null;
+                    }
+                    simulationRef.current = simulation;
+                    simulation.alphaTarget(0.16).restart();
+                }
+
+                graphNode.fx = event.x;
+                graphNode.fy = event.y;
+            })
+            .on('end', (event, graphNode) => {
+                background.style('cursor', 'grab');
+                graphNode.fx = null;
+                graphNode.fy = null;
+
+                if (graphNode.wasDragged) {
+                    if (!event.active) {
+                        simulation.alphaTarget(0);
+                    }
+                    settleTimeoutRef.current = setTimeout(() => {
+                        simulation.stop();
+                    }, 250);
+                }
+
+                graphNode.wasDragged = false;
+            });
+
         const node = nodeLayer
             .selectAll('g')
             .data(nodes, (graphNode) => graphNode.id)
             .join('g')
             .style('cursor', 'pointer')
-            .call(
-                d3
-                    .drag()
-                    .on('start', (event, graphNode) => {
-                        background.style('cursor', 'grabbing');
-                        if (!event.active) simulation.alphaTarget(0.22).restart();
-                        graphNode.fx = graphNode.x;
-                        graphNode.fy = graphNode.y;
-                    })
-                    .on('drag', (event, graphNode) => {
-                        graphNode.fx = event.x;
-                        graphNode.fy = event.y;
-                    })
-                    .on('end', (event, graphNode) => {
-                        background.style('cursor', 'grab');
-                        if (!event.active) simulation.alphaTarget(0);
-                        graphNode.fx = null;
-                        graphNode.fy = null;
-                    })
-            )
+            .call(dragBehavior)
             .on('click', (event, graphNode) => {
                 event.stopPropagation();
                 if (simulationRef.current) simulationRef.current.stop();
@@ -592,7 +619,6 @@ function KnowledgeGraphPage() {
         simulation.alpha(0.12).restart();
         simulationRef.current = simulation;
 
-        // Stop simulation after layout settles so highlight changes stay visual-only.
         settleTimeoutRef.current = setTimeout(() => {
             simulation.stop();
         }, 3000);
@@ -605,18 +631,17 @@ function KnowledgeGraphPage() {
                 clearTimeout(settleTimeoutRef.current);
                 settleTimeoutRef.current = null;
             }
-             simulation.stop();
+            simulation.stop();
             if (simulationRef.current === simulation) {
                 simulationRef.current = null;
             }
-             nodeSelectionRef.current = null;
-             linkSelectionRef.current = null;
-             svg.on('.zoom', null);
-         };
+            nodeSelectionRef.current = null;
+            linkSelectionRef.current = null;
+            svg.on('.zoom', null);
+        };
     }, [normalizedGraph.nodes, normalizedGraph.edges, graphWidth]);
 
     useEffect(() => {
-        // Ensure simulation is stopped before applying visual highlight changes.
         if (simulationRef.current) {
             simulationRef.current.stop();
         }
