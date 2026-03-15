@@ -228,6 +228,10 @@ function KnowledgeGraphPage() {
     const clickedNodeIdRef = useRef(null);
     const selectedDrugsRef = useRef(new Set());
     const resetViewRef = useRef(() => {});
+    const simulationRef = useRef(null);
+    const handleSoftResetRef = useRef(null);
+    const clearAllSelectionsRef = useRef(null);
+    const settleTimeoutRef = useRef(null);
 
     const loadGraph = useCallback(async () => {
         setLoading(true);
@@ -371,6 +375,14 @@ function KnowledgeGraphPage() {
     }, []);
 
     useEffect(() => {
+        handleSoftResetRef.current = handleSoftReset;
+    }, [handleSoftReset]);
+
+    useEffect(() => {
+        clearAllSelectionsRef.current = clearAllSelections;
+    }, [clearAllSelections]);
+
+    useEffect(() => {
         const onKeyDown = (event) => {
             if (event.key === 'Escape') {
                 handleSoftReset();
@@ -422,11 +434,11 @@ function KnowledgeGraphPage() {
             .style('cursor', 'grab')
             .on('click', (event) => {
                 event.stopPropagation();
-                handleSoftReset();
+                handleSoftResetRef.current?.();
             })
             .on('dblclick', (event) => {
                 event.stopPropagation();
-                clearAllSelections();
+                clearAllSelectionsRef.current?.();
                 resetViewRef.current();
             });
 
@@ -514,6 +526,7 @@ function KnowledgeGraphPage() {
             )
             .on('click', (event, graphNode) => {
                 event.stopPropagation();
+                if (simulationRef.current) simulationRef.current.stop();
                 setClickedNodeId((current) => (current === graphNode.id ? null : graphNode.id));
             });
 
@@ -577,19 +590,37 @@ function KnowledgeGraphPage() {
 
         simulation.on('tick', positionGraph);
         simulation.alpha(0.12).restart();
+        simulationRef.current = simulation;
+
+        // Stop simulation after layout settles so highlight changes stay visual-only.
+        settleTimeoutRef.current = setTimeout(() => {
+            simulation.stop();
+        }, 3000);
 
         nodeSelectionRef.current = node;
         linkSelectionRef.current = link;
 
         return () => {
-            simulation.stop();
-            nodeSelectionRef.current = null;
-            linkSelectionRef.current = null;
-            svg.on('.zoom', null);
-        };
-    }, [clearAllSelections, graphWidth, handleSoftReset, normalizedGraph.edges, normalizedGraph.nodes]);
+            if (settleTimeoutRef.current) {
+                clearTimeout(settleTimeoutRef.current);
+                settleTimeoutRef.current = null;
+            }
+             simulation.stop();
+            if (simulationRef.current === simulation) {
+                simulationRef.current = null;
+            }
+             nodeSelectionRef.current = null;
+             linkSelectionRef.current = null;
+             svg.on('.zoom', null);
+         };
+    }, [normalizedGraph.nodes, normalizedGraph.edges, graphWidth]);
 
     useEffect(() => {
+        // Ensure simulation is stopped before applying visual highlight changes.
+        if (simulationRef.current) {
+            simulationRef.current.stop();
+        }
+
         const nodeSelection = nodeSelectionRef.current;
         const linkSelection = linkSelectionRef.current;
         if (!nodeSelection || !linkSelection) return;
