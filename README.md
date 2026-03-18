@@ -136,14 +136,6 @@ docker compose up --build
 
 Grab a coffee. The first build takes a few minutes to pull models and build containers.
 
-### You're in
-
-| Service | URL |
-|---|---|
-| Dashboard | http://localhost:5173 |
-| API Docs (Swagger) | http://localhost:8000/docs |
-
----
 
 ## Project Structure
 
