@@ -26,3 +26,5 @@ backend/data/raw/*.zst
 .DS_Store
 Thumbs.db
 diaintel_backup.sql
+raw_posts_backup.sql
+.venv/
